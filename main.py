@@ -21,8 +21,8 @@ def get_base64_of_bin_file(bin_file):
     return None
 
 # Path to your logo and SeaZero image
-logo_path = r'D:\1.Work_2024\1.Code\Resource\Teknotherm_logo_2020.png'
-seazero_img_path = r'D:\1.Work_2024\1.Code\Resource\Screenshot 2026-01-01 173700.png'
+logo_path = r'resource\Teknotherm_logo_2020.png'
+seazero_img_path = r'resource\Screenshot 2026-01-01 173700.png'
 
 logo_base64 = get_base64_of_bin_file(logo_path)
 seazero_base64 = get_base64_of_bin_file(seazero_img_path)
@@ -174,8 +174,8 @@ if current_page == "seazero":
 else:
     # --- Measurement Data Page ---
     try:
-        dataset_CO2 = pd.read_csv('D:/1.Work_2024/1.Code/dataset/updated_file_summary_2025_07_2025_12_co2.csv')
-        dataset_velocity = pd.read_csv('D:/1.Work_2024/1.Code/dataset/updated_file_summary_2025_07_2025_12_velocity.csv')
+        dataset_CO2 = pd.read_csv('dataset/updated_file_summary_2025_07_2025_12_co2.csv')
+        dataset_velocity = pd.read_csv('dataset/updated_file_summary_2025_07_2025_12_velocity.csv')
         dataset_CO2['Time'] = pd.to_datetime(dataset_CO2['Time'])
         dataset_velocity['Time'] = pd.to_datetime(dataset_velocity['Time'])
         dataset_CO2['Month_Display'] = dataset_CO2['Time'].dt.strftime('%Y.%m')
@@ -221,4 +221,5 @@ else:
 
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     except Exception as e:
+
         st.error(f"Error loading datasets: {e}")
