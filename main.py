@@ -21,8 +21,8 @@ def get_base64_of_bin_file(bin_file):
     return None
 
 # Path to your logo and SeaZero image
-logo_path = r'resource\Teknotherm_logo_2020.png'
-seazero_img_path = r'resource\Screenshot 2026-01-01 173700.png'
+logo_path = "resource\Teknotherm_logo_2020.png"
+seazero_img_path = "resource\Screenshot 2026-01-01 173700.png"
 
 logo_base64 = get_base64_of_bin_file(logo_path)
 seazero_base64 = get_base64_of_bin_file(seazero_img_path)
@@ -223,3 +223,4 @@ else:
     except Exception as e:
 
         st.error(f"Error loading datasets: {e}")
+
