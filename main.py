@@ -29,7 +29,7 @@ seazero_base64 = get_base64_of_bin_file(seazero_img_path)
 
 logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="nav-logo-img">' if logo_base64 else '<span class="nav-logo" style="color:#000000; font-weight:900;">TEKNOTHERM</span>'
 
-# Enhanced CSS
+# Enhanced CSS (Consolidated)
 st.markdown(f"""
     <style>
     @import url('https://cdn.fontshare.com/vv2/pack.css?family=satoshi@300,400,500,700,900');
@@ -37,37 +37,62 @@ st.markdown(f"""
     .stApp {{ background-color: #FFFFFF; font-family: 'Satoshi', sans-serif; }}
     .main .block-container {{ padding-top: 0.5rem !important; max-width: 98%; overflow: visible !important; }}
 
+    /* Navigation */
     .nav-container {{ display: flex; justify-content: space-between; align-items: center; padding: 0.1rem 0; background-color: #FFFFFF; margin-bottom: 1.5rem; border: none !important; }}
     .nav-logo-img {{ height: 38px; width: auto; }}
     .nav-menu {{ display: flex; gap: 2rem; margin-right: 3rem; margin-left: auto; }}
-    
     .nav-item {{ font-family: 'Satoshi', sans-serif; font-weight: 400; font-size: 14px; color: #000000 !important; text-decoration: none !important; }}
     .active-nav {{ color: #004499 !important; font-weight: 700 !important; }}
-    
     .user-profile {{ display: flex; align-items: center; gap: 0.5rem; font-family: 'Satoshi', sans-serif; font-size: 13px; color: #475569; }}
 
+    /* Titles & Content */
     .main-title {{ font-family: 'Satoshi', sans-serif; font-size: 18px; font-weight: 500; color: #171C35; margin: 0; text-align: left; }}
-    
-    /* SeaZero Font Styling - High specificity for Satoshi */
-    .seazero-content {{ 
-        font-family: 'Satoshi', sans-serif !important; 
-        font-size: 15px; 
-        color: #475569; 
-        line-height: 1.8; 
+    .seazero-content {{ font-family: 'Satoshi', sans-serif !important; font-size: 15px; color: #475569; line-height: 1.8; }}
+
+    /* Shared Result/KPI Cards */
+    .result-card {{
+        background: white;
+        border: 1px solid #e2e8f0;
+        padding: 16px;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }}
-    .seazero-content p, .seazero-content li, .seazero-content b, .seazero-content span {{ 
-        font-family: 'Satoshi', sans-serif !important; 
+    .kpi-label-alt {{
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }}
+    .kpi-value-alt {{
+        color: #1e293b;
+        font-size: 20px;
+        font-weight: 700;
+        margin-top: 4px;
+    }}
+    .saving-badge {{
+        display: inline-flex;
+        align-items: center;
+        background-color: #dcfce7;
+        color: #15803d;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-left: 8px;
     }}
 
-    .kpi-container {{ background-color: #F8FAFC; padding: 8px 15px; border-radius: 8px; border: 1px solid #F1F5F9; min-width: 140px; margin-top: 10px; }}
-    .kpi-label {{ font-family: 'Satoshi', sans-serif; font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.02em; }}
-    .kpi-value {{ font-family: 'Satoshi', sans-serif; font-size: 18px; font-weight: 500; color: #1E293B; }}
-
+    /* Selectbox Styling */
     div[data-testid="stSelectbox"] {{ width: 110px !important; margin-left: auto; }}
     div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
         background-color: transparent; border: 1px solid #E2E8F0; border-radius: 6px; min-height: 28px !important; font-size: 13px !important; padding: 0px 4px !important;
     }}
     div[data-testid="stSelectbox"] label {{ display: none; }}
+
+    /* Energy Page Specifics */
+    div.stButton > button:first-child {{
+        background-color: #004499; color: white; border-radius: 6px; padding: 0.6rem 2rem; border: none; font-weight: 600; font-size: 13px !important; width: 200px; margin-top: 30px;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -78,7 +103,7 @@ st.markdown(f"""
         <div class="nav-menu">
             <a class="nav-item {'active-nav' if current_page == 'seazero' else ''}" href="/?page=seazero" target="_self">SeaZero</a>
             <a class="nav-item {'active-nav' if current_page == 'measurement' else ''}" href="/?page=measurement" target="_self">Measurement data</a>
-            <a class="nav-item" href="#">Energy Calculation</a>
+            <a class="nav-item {'active-nav' if current_page == 'energy' else ''}" href="/?page=energy" target="_self">Energy Calculation</a>
         </div>
         <div class="user-profile">
             <span>Admin User</span>
@@ -171,8 +196,7 @@ if current_page == "seazero":
             </div>
         """, unsafe_allow_html=True)
 
-else:
-    # --- Measurement Data Page ---
+elif current_page == "measurement":
     try:
         dataset_CO2 = pd.read_csv('dataset/updated_file_summary_2025_07_2025_12_co2.csv')
         dataset_velocity = pd.read_csv('dataset/updated_file_summary_2025_07_2025_12_velocity.csv')
@@ -181,12 +205,12 @@ else:
         dataset_CO2['Month_Display'] = dataset_CO2['Time'].dt.strftime('%Y.%m')
 
         kpi_table = {
-            "2025.07": {"orig": "1,000", "dcv": "1,000", "save": "0%"},
-            "2025.08": {"orig": "1,500", "dcv": "1,500", "save": "0%"},
-            "2025.09": {"orig": "2,310", "dcv": "2,310", "save": "0%"},
-            "2025.10": {"orig": "1,530", "dcv": "1,530", "save": "0%"},
-            "2025.11": {"orig": "1,500", "dcv": "900", "save": "30%"},
-            "2025.12": {"orig": "1,400", "dcv": "1,000", "save": "25%"}
+            "2025.07": {"orig": "57,862", "dcv": "57,862", "save": "0%"},
+            "2025.08": {"orig": "57,862", "dcv": "57,862", "save": "0%"},
+            "2025.09": {"orig": "55,956", "dcv": "55,956", "save": "0%"},
+            "2025.10": {"orig": "57,862", "dcv": "57,862", "save": "0%"},
+            "2025.11": {"orig": "55,956", "dcv": "32,148", "save": "42.5%"},
+            "2025.12": {"orig": "57,862", "dcv": "38,635", "save": "33.2%"}
         }
 
         header_col, selector_col = st.columns([8, 2])
@@ -194,34 +218,300 @@ else:
             st.markdown('<div class="main-title">Demand Control Ventilation of the Smart Cabin in Hurtigruten MS Trollfjord</div>', unsafe_allow_html=True)
         with selector_col:
             display_options = sorted(list(kpi_table.keys()))
-            selected_display = st.selectbox("", options=display_options, index=0)
+            selected_display = st.selectbox("", options=display_options, index=5)
 
         monthly_values = kpi_table.get(selected_display, {"orig": "0", "dcv": "0", "save": "0%"})
-        kpi_1, kpi_2, kpi_3, kpi_spacer = st.columns([1.2, 1.2, 1.2, 6])
-
+        
+        # Updated KPI Section using Energy Result Card format
+        kpi_1, kpi_2, kpi_3, kpi_spacer = st.columns([1.5, 1.5, 1.5, 5.5])
         with kpi_1:
-            st.markdown(f"""<div class="kpi-container"><div class="kpi-label">Original Volume</div><div class="kpi-value">{monthly_values['orig']} m³</div></div>""", unsafe_allow_html=True)
+            st.markdown(f'<div class="result-card"><div class="kpi-label-alt">Original Volume</div><div class="kpi-value-alt">{monthly_values["orig"]}<span style="font-size:11px;"> m³</span></div></div>', unsafe_allow_html=True)
         with kpi_2:
-            st.markdown(f"""<div class="kpi-container"><div class="kpi-label">DCV Volume</div><div class="kpi-value">{monthly_values['dcv']} m³</div></div>""", unsafe_allow_html=True)
+            st.markdown(f'<div class="result-card"><div class="kpi-label-alt">DCV Volume</div><div class="kpi-value-alt">{monthly_values["dcv"]}<span style="font-size:11px;"> m³</span></div></div>', unsafe_allow_html=True)
         with kpi_3:
-            st.markdown(f"""<div class="kpi-container"><div class="kpi-label">Saving</div><div class="kpi-value" style="color: #10B981;">{monthly_values['save']}</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;">
+                    <div class="kpi-label-alt" style="color: #15803d;">Fresh Air Amount Savings</div>
+                    <div style="display: flex; align-items: baseline; margin-top: 4px;">
+                        <span style="color: #15803d; font-size: 20px; font-weight: 700;">{monthly_values["save"]}</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
 
         f_co2 = dataset_CO2[dataset_CO2['Month_Display'] == selected_display]
-        f_vel = dataset_velocity[pd.to_datetime(dataset_velocity['Time']).dt.strftime('%Y.%m') == selected_display]
+        f_vel = dataset_velocity[dataset_velocity['Time'].dt.strftime('%Y.%m') == selected_display]
 
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, subplot_titles=("CO2 Concentration (ppm)", "VAV Supply Air Velocity (m/s)"))
         fig.add_trace(go.Scatter(x=f_co2['Time'], y=f_co2['CO2_SENSOR'], mode='lines', line=dict(color='#ff730f', width=1), fill='tozeroy', fillcolor='rgba(255, 115, 15, 0.05)'), row=1, col=1)
         fig.add_trace(go.Scatter(x=f_vel['Time'], y=f_vel['SmartCabin - Supply velocity'], mode='lines', line=dict(color='#004499', width=1), fill='tozeroy', fillcolor='rgba(0, 68, 153, 0.05)'), row=2, col=1)
-
-        fig.update_layout(height=500, margin=dict(l=0, r=0, t=50, b=20), showlegend=False, template="plotly_white", hovermode="x unified")
-        fig.update_annotations(font_size=13, font_family="Satoshi, sans-serif", x=0, xanchor='left')
-        fig.update_xaxes(showline=False, zeroline=False, gridcolor='#F5F5F5')
-        fig.update_yaxes(showline=False, zeroline=False, gridcolor='#F5F5F5')
-        fig.update_yaxes(range=[300, f_co2['CO2_SENSOR'].max() * 1.1], row=1, col=1)
-
+        fig.update_layout(height=500, margin=dict(l=0, r=0, t=50, b=20), showlegend=False, template="plotly_white")
+        fig.update_annotations(
+                font_size=13, 
+                font_family="Satoshi, sans-serif",
+                x=0.5, 
+                xanchor='left'
+            )
+        fig.update_xaxes(tickfont=dict(size=12), gridcolor='#F5F5F5')
+        fig.update_yaxes(tickfont=dict(size=12), gridcolor='#F5F5F5')
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     except Exception as e:
-
         st.error(f"Error loading datasets: {e}")
 
 
+elif current_page == "energy":
+    # --- 1. CONSOLIDATED CSS STYLING ---
+    st.markdown("""
+        <style>
+        /* Input constraints */
+        div[data-testid="stTextInput"] { width: 250px !important; }
+        div[data-testid="stSelectbox"] { width: 250px !important; margin-left: 0 !important; }
+        
+        /* Action Button */
+        div.stButton > button:first-child {
+            background-color: #004499;
+            color: white;
+            border-radius: 6px;
+            padding: 0.6rem 2rem;
+            border: none;
+            font-weight: 600;
+            font-size: 13px !important;
+            width: 200px;
+            margin-top: 30px;
+            transition: all 0.2s ease;
+        }
+        div.stButton > button:hover {
+            background-color: #003377;
+            border-color: #003377;
+            color: white;
+        }
+
+        /* Result Cards */
+        .result-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            padding: 16px;
+            border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .kpi-label-alt {
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .kpi-value-alt {
+            color: #1e293b;
+            font-size: 20px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .saving-badge {
+            display: inline-flex;
+            align-items: center;
+            background-color: #dcfce7;
+            color: #15803d;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-left: 8px;
+        }
+
+        /* Improved Popover Assumption UI */
+        div[data-testid="stPopover"] > button {
+            border: none !important;
+            background-color: transparent !important;
+            padding: 0 !important;
+            font-size: 18px !important;
+            color: #94A3B8 !important;
+            margin-left: -10px !important;
+        }
+        .assumption-container { min-width: 300px; padding: 10px 5px; }
+        .spec-header {
+            font-size: 0.75rem; font-weight: 800; text-transform: uppercase;
+            color: #004499; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px;
+        }
+        .spec-item { margin-bottom: 16px; }
+        .spec-label { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 2px; }
+        .spec-desc { font-size: 12px; color: #64748b; line-height: 1.4; }
+        .formula-tag {
+            display: inline-block; background: #f1f5f9; color: #004499; padding: 4px 8px;
+            border-radius: 4px; font-family: monospace; font-weight: 700; font-size: 11px;
+            margin-top: 6px; border: 1px solid #e2e8f0;
+        }
+                
+        /* --- SMALL FLOATING DROP-UP CSS --- */
+        .footer-fixed-wrapper {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            z-index: 999;
+            background-color: white;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        details {
+            display: flex;
+            flex-direction: column-reverse;
+        }
+
+        summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 40px;
+            cursor: pointer;
+            list-style: none;
+            background-color: white;
+        }
+
+        summary::-webkit-details-marker { display: none; }
+
+        /* The Smaller Assumption Box */
+        .dropup-content {
+            position: absolute;
+            bottom: 60px; /* Sits exactly above the footer bar */
+            left: 40px;   /* Aligned with the 'Calculation Assumptions' text */
+            width: 350px; /* Controlled width for a smaller box */
+            background-color: #ffffff;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 -10px 25px rgba(0,0,0,0.1); /* Shadow to make it 'pop' */
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .footer-nav-label {
+            color: #004499;
+            font-weight: 400;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .footer-copyright {
+            font-size: 11px;
+            color: #94a3b8;
+        }
+
+        /* Content inside the small box */
+        .inner-markdown h4 { 
+            color: #004499; 
+            font-size: 14px; 
+            margin-top: 0; 
+            border-bottom: 1px solid #f1f5f9;
+            padding-bottom: 8px;
+        }
+        .inner-markdown p, .inner-markdown li { 
+            color: #475569; 
+            font-size: 12px; 
+            line-height: 1.5; 
+        }
+        .formula-box {
+            background: #f8fafc;
+            padding: 8px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 11px;
+            margin: 10px 0;
+            border: 1px solid #e2e8f0;
+            color: #004499;
+        }
+
+        </style>
+    """, unsafe_allow_html=True)
+
+    # --- 2. PAGE LAYOUT ---
+    left_col, right_col = st.columns([1, 2], gap="large")
+
+    # --- LEFT COLUMN: INPUTS ---
+    with left_col:
+        header_row = st.columns([0.65, 0.35])
+        with header_row[0]:
+            st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 16px; margin-bottom: 0;">Cabin Configuration</p>', unsafe_allow_html=True)
+        st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+        cabin_no = st.text_input("Cabin Number", value="120")
+        st.markdown('<p style="font-size: 14px; margin-bottom: 8px; font-weight: 500;">Sailing Route</p>', unsafe_allow_html=True)
+        route = st.selectbox("", options=["Bergen - Kirkenes (Coastal)", "North Sea Expedition", "Arctic/Svalbard Circuit"], index=0, label_visibility="collapsed")
+        run_calc = st.button("Run Calculation")
+
+    # --- RIGHT COLUMN: OUTPUTS ---
+    with right_col:
+        if run_calc:
+            # --- Calculation Logic ---
+            base_power, hours, flow_ratio = 0.18, 720, 0.65
+            
+            fan_orig = base_power * hours
+            fan_dcv = fan_orig * (flow_ratio**3)
+            fan_save_kwh = fan_orig - fan_dcv
+            fan_gain_pct = (1 - (flow_ratio**3)) * 100
+            
+            chiller_orig = 125.0 
+            chiller_save_kwh = chiller_orig * 0.35 
+            chiller_dcv = chiller_orig - chiller_save_kwh
+            chiller_gain_pct = 35.0
+
+            st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 18px; margin-bottom: 20px;">Detailed Calculation Results</p>', unsafe_allow_html=True)
+
+            # System Card Generator
+            systems = [
+                ("Ventilation Fan System", fan_orig, fan_dcv, fan_save_kwh, fan_gain_pct, "#004499"),
+                ("Chiller", chiller_orig, chiller_dcv, chiller_save_kwh, chiller_gain_pct, "#0ea5e9")
+            ]
+
+            for title, orig, dcv, save, pct, color in systems:
+                st.markdown(f'<p style="font-weight: 700; color: {color}; font-size: 12px; margin-top: 20px; text-transform: uppercase;">{title}</p>', unsafe_allow_html=True)
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown(f'<div class="result-card"><div class="kpi-label-alt">Baseline</div><div class="kpi-value-alt">{orig:.1f}<span style="font-size:11px;"> kWh</span></div></div>', unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div><div class="kpi-value-alt">{dcv:.1f}<span style="font-size:11px;"> kWh</span></div></div>', unsafe_allow_html=True)
+                with c3:
+                    st.markdown(f"""
+                        <div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;">
+                            <div class="kpi-label-alt" style="color: #15803d;">Savings</div>
+                            <div style="display: flex; align-items: baseline; margin-top: 4px;">
+                                <span style="color: #15803d; font-size: 20px; font-weight: 700;">{save:.1f}</span>
+                                <span style="color: #15803d; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span>
+                                <span class="saving-badge">-{pct:.0f}%</span>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+                <div style="border: 2px dashed #E2E8F0; border-radius: 12px; height: 450px; display: flex; align-items: center; justify-content: center; color: #94A3B8; text-align: center;">
+                    <div>
+                        <p style="font-size: 48px; margin-bottom: 10px;">🍃</p>
+                        <p style="font-weight: 500; color: #64748B;">Ready to Calculate</p>
+                        <p style="font-size: 13px;">Adjust parameter and run calculation.</p>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+    # --- 3. STABLE FOOTER WITH SMALL FLOATING BOX ---
+    st.markdown("""
+        <div class="footer-fixed-wrapper">
+            <details>
+                <div class="dropup-content">
+                    <div class="inner-markdown">
+                        <h4>Engineering Assumptions</h4>
+                        <p>Based on DCV standard shipboard profiles:</p>
+                        <div class="formula-box">Power Savings: P₂ = P₁ × (Q₂/Q₁)³</div>
+                        <ul>
+                            <li>Average flow reduction: 35%</li>
+                            <li>Fan efficiency: 85%</li>
+                            <li>Standard month: 720 hours</li>
+                        </ul>
+                        <p style="font-size: 10px; color: #94a3b8; margin-top: 10px;">*Calculation adheres to Teknotherm efficiency guidelines.</p>
+                    </div>
+                </div>
+                <summary>
+                    <div class="footer-nav-label">▲ Calculation Assumptions</div>
+                    <div class="footer-copyright">© 2026 Teknotherm sales tool for Demand Control Ventilation</div>
+                </summary>
+            </details>
+        </div>
+        <div style="margin-bottom: 80px;"></div>
+    """, unsafe_allow_html=True)
