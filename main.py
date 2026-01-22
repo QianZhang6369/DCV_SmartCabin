@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import base64
 import os
+import numpy as np
 
 # 1. Page Config
 st.set_page_config(page_title="Ventilation Dashboard", layout="wide")
@@ -426,85 +427,142 @@ elif current_page == "energy":
     # --- 2. PAGE LAYOUT ---
     left_col, right_col = st.columns([1, 2], gap="large")
 
-    # --- LEFT COLUMN: INPUTS ---
     with left_col:
-        header_row = st.columns([0.65, 0.35])
-        with header_row[0]:
-            st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 16px; margin-bottom: 0;">Cabin Configuration</p>', unsafe_allow_html=True)
+        st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 16px; margin-bottom: 0;">Cabin Configuration</p>', unsafe_allow_html=True)
         st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
-        cabin_no = st.text_input("Cabin Number", value="120")
+        
+        # Cabin Input (Converted to int for the function)
+        cabin_input = st.text_input("Total Vessel Cabins", value="120")
+        
         st.markdown('<p style="font-size: 14px; margin-bottom: 8px; font-weight: 500;">Sailing Route</p>', unsafe_allow_html=True)
-        route = st.selectbox("", options=["Bergen - Kirkenes (Coastal)", "North Sea Expedition", "Arctic/Svalbard Circuit"], index=0, label_visibility="collapsed")
+        route = st.selectbox("", options=["Oslo - Honningsvåg - Oslo", "Bergen - Kirkenes - Bergen"], index=0, label_visibility="collapsed")
+        
         run_calc = st.button("Run Calculation")
 
-    # --- RIGHT COLUMN: OUTPUTS ---
+    # --- 3. COMPUTATION LOGIC ---
     with right_col:
         if run_calc:
-            # --- Calculation Logic ---
-            base_power, hours, flow_ratio = 0.18, 720, 0.65
-            
-            fan_orig = base_power * hours
-            fan_dcv = fan_orig * (flow_ratio**3)
-            fan_save_kwh = fan_orig - fan_dcv
-            fan_gain_pct = (1 - (flow_ratio**3)) * 100
-            
-            chiller_orig = 125.0 
-            chiller_save_kwh = chiller_orig * 0.35 
-            chiller_dcv = chiller_orig - chiller_save_kwh
-            chiller_gain_pct = 35.0
+            try:
+                # Local paths (Update these to your local or relative Streamlit paths)
+                weather_path = "dataset/hourly_schedule_weather - Copy.csv"
+                velocity_path = "dataset/VAV_velocity_Oslo-Honningsvåg-Oslo.csv"
+                
+                # Input conversion
+                num_cabins = int(cabin_input)
 
-            st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 18px; margin-bottom: 20px;">Detailed Calculation Results</p>', unsafe_allow_html=True)
+                # Physics & Data Processing
+                # (Integrating your logic here)
+                from CoolProp.HumidAirProp import HAPropsSI
+                
+                # Data Loading
+                df_w = pd.read_csv(weather_path)
+                df_w['time'] = pd.to_datetime(df_w['time'])
+                df_w = df_w.groupby('time').mean().resample('10T').interpolate(method='linear')
 
-            # System Card Generator
-            systems = [
-                ("Ventilation Fan System", fan_orig, fan_dcv, fan_save_kwh, fan_gain_pct, "#004499"),
-                ("Chiller", chiller_orig, chiller_dcv, chiller_save_kwh, chiller_gain_pct, "#0ea5e9")
-            ]
+                df_v = pd.read_csv(velocity_path)
+                df_v['Time'] = pd.to_datetime(df_v['Time'])
+                df_v = df_v.groupby('Time').mean().resample('10T').mean()
 
-            for title, orig, dcv, save, pct, color in systems:
-                st.markdown(f'<p style="font-weight: 700; color: {color}; font-size: 12px; margin-top: 20px; text-transform: uppercase;">{title}</p>', unsafe_allow_html=True)
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.markdown(f'<div class="result-card"><div class="kpi-label-alt">Baseline</div><div class="kpi-value-alt">{orig:.1f}<span style="font-size:11px;"> kWh</span></div></div>', unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div><div class="kpi-value-alt">{dcv:.1f}<span style="font-size:11px;"> kWh</span></div></div>', unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f"""
-                        <div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;">
-                            <div class="kpi-label-alt" style="color: #15803d;">Savings</div>
-                            <div style="display: flex; align-items: baseline; margin-top: 4px;">
-                                <span style="color: #15803d; font-size: 20px; font-weight: 700;">{save:.1f}</span>
-                                <span style="color: #15803d; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span>
-                                <span class="saving-badge">-{pct:.0f}%</span>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                full_year_index = pd.date_range(start='2025-01-01 00:00:00', end='2025-12-31 23:50:00', freq='10T')
+                master_df = pd.DataFrame(index=full_year_index).join(df_w, how='left').join(df_v, how='left')
+
+                # Constants
+                P_asm, T_supply_c, RH_supply = 101325, 15, 0.85
+                duct_diameter_m, design_flow_per_cabin = 0.08, 85
+                SFP, COP, dt = 2.5, 3.0, 10 / 60
+
+                # Physics Calculations
+                h_supply = HAPropsSI('H', 'T', T_supply_c + 273.15, 'P', P_asm, 'R', RH_supply) / 1000.0
+                
+                master_df['ambient_enthalpy_kj_kg'] = master_df.apply(lambda x: HAPropsSI('H', 'T', x['temperature_2m'] + 273.15, 'P', P_asm, 'R', x['relative_humidity_2m']/100.0)/1000.0 if not np.isnan(x['temperature_2m']) else np.nan, axis=1)
+                master_df['air_density_kg_m3'] = master_df.apply(lambda x: 1.0/HAPropsSI('V', 'T', x['temperature_2m'] + 273.15, 'P', P_asm, 'R', x['relative_humidity_2m']/100.0) if not np.isnan(x['temperature_2m']) and x['temperature_2m'] != 0 else 1.225, axis=1)
+
+                # Flow Rates
+                master_df['actual_flow_rate_m3h'] = master_df['Velocity'] * (np.pi * (duct_diameter_m/2)**2) * 3600 * num_cabins
+                design_total_flow = design_flow_per_cabin * num_cabins
+                master_df['vessel_design_flow_m3h'] = np.where(master_df['Velocity'].isna(), np.nan, design_total_flow)
+
+                # Power Formulas
+                design_fan_power_kw_const = (design_total_flow / 3600) * SFP
+                
+                def fan_poly(flow, d_flow):
+                    if d_flow <= 0 or flow <= 0 or np.isnan(flow): return 0.0
+                    x = flow / d_flow
+                    return (0.0013 + 0.147*x + 0.9506*x**2 - 0.0998*x**3) * design_fan_power_kw_const
+
+                master_df['actual_fan_power_kw'] = np.vectorize(fan_poly)(master_df['actual_flow_rate_m3h'], master_df['vessel_design_flow_m3h'])
+                master_df['design_fan_power_kw'] = np.where(master_df['vessel_design_flow_m3h'] > 0, design_fan_power_kw_const, 0)
+
+                # ... [Previous physics calculations remain the same until Energy Integration] ...
+
+                # --- NEW: TIME-BASED FILTERING FOR HEATING ---
+                # We calculate heating power for the whole year, 
+                # then zero out any values outside 08:00 - 14:00.
+                master_df['actual_heating_kw'] = master_df.apply(
+                    lambda x: ((x['actual_flow_rate_m3h']/3600)*x['air_density_kg_m3']*(h_supply - x['ambient_enthalpy_kj_kg']))/COP 
+                    if x['ambient_enthalpy_kj_kg'] < h_supply else 0, axis=1
+                )
+                master_df['design_heating_kw'] = master_df.apply(
+                    lambda x: ((x['vessel_design_flow_m3h']/3600)*x['air_density_kg_m3']*(h_supply - x['ambient_enthalpy_kj_kg']))/COP 
+                    if x['ambient_enthalpy_kj_kg'] < h_supply else 0, axis=1
+                )
+
+                # Create a mask: True only between 08:00 and 14:00
+                heating_mask = (master_df.index.hour >= 8) & (master_df.index.hour < 14)
+                
+                # Apply the mask to heating columns (Zero out everything else)
+                master_df.loc[~heating_mask, 'actual_heating_kw'] = 0
+                master_df.loc[~heating_mask, 'design_heating_kw'] = 0
+
+                # --- ENERGY INTEGRATION ---
+                # Ventilation Fans (Running 24/7)
+                fan_orig = (((master_df['design_fan_power_kw'] + master_df['design_fan_power_kw'].shift(1, fill_value=0)) / 2) * dt).sum()
+                fan_dcv = (((master_df['actual_fan_power_kw'] + master_df['actual_fan_power_kw'].shift(1, fill_value=0)) / 2) * dt).sum()
+                
+                # Heating (Now restricted by the mask above)
+                heat_orig = (((master_df['design_heating_kw'] + master_df['design_heating_kw'].shift(1, fill_value=0)) / 2) * dt).sum()
+                heat_dcv = (((master_df['actual_heating_kw'] + master_df['actual_heating_kw'].shift(1, fill_value=0)) / 2) * dt).sum()
+
+                # --- UI DISPLAY ---
+                # [Rest of the code follows...]
+                # UI Display
+                st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 18px; margin-bottom: 20px;">Detailed Calculation Results</p>', unsafe_allow_html=True)
+                
+                results = [
+                    ("Ventilation Fan System", fan_orig, fan_dcv, "#004499"),
+                    ("Heating System", heat_orig, heat_dcv, "#950606")
+                ]
+
+                for title, orig, dcv, color in results:
+                    save = orig - dcv
+                    pct = (save / orig * 100) if orig > 0 else 0
+                    st.markdown(f'<p style="font-weight: 700; color: {color}; font-size: 12px; margin-top: 20px; text-transform: uppercase;">{title}</p>', unsafe_allow_html=True)
+                    c1, c2, c3 = st.columns(3)
+                    with c1: st.markdown(f'<div class="result-card"><div class="kpi-label-alt">Baseline</div><div class="kpi-value-alt">{orig:,.0f}<span style="font-size:11px;"> kWh</span></div></div>', unsafe_allow_html=True)
+                    with c2: st.markdown(f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div><div class="kpi-value-alt">{dcv:,.0f}<span style="font-size:11px;"> kWh</span></div></div>', unsafe_allow_html=True)
+                    with c3: st.markdown(f'<div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;"><div class="kpi-label-alt" style="color: #15803d;">Savings</div><div style="display: flex; align-items: baseline; margin-top: 4px;"><span style="color: #15803d; font-size: 20px; font-weight: 700;">{save:,.0f}</span><span style="color: #15803d; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span><span class="saving-badge">-{pct:.1f}%</span></div></div>', unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error(f"Calculation Error: {e}. Please check if dataset files exist in the /dataset directory.")
         else:
             st.markdown("""
                 <div style="border: 2px dashed #E2E8F0; border-radius: 12px; height: 450px; display: flex; align-items: center; justify-content: center; color: #94A3B8; text-align: center;">
-                    <div>
-                        <p style="font-size: 48px; margin-bottom: 10px;">🍃</p>
-                        <p style="font-weight: 500; color: #64748B;">Ready to Calculate</p>
-                        <p style="font-size: 13px;">Adjust parameter and run calculation.</p>
-                    </div>
+                    <div><p style="font-size: 48px; margin-bottom: 10px;">🍃</p><p style="font-weight: 500; color: #64748B;">Ready to Calculate</p><p style="font-size: 13px;">Adjust parameter and run calculation.</p></div>
                 </div>
             """, unsafe_allow_html=True)
-
     # --- 3. STABLE FOOTER WITH SMALL FLOATING BOX ---
     st.markdown("""
         <div class="footer-fixed-wrapper">
             <details>
                 <div class="dropup-content">
                     <div class="inner-markdown">
-                        <h4>Engineering Assumptions</h4>
-                        <p>Based on DCV standard shipboard profiles:</p>
-                        <div class="formula-box">Power Savings: P₂ = P₁ × (Q₂/Q₁)³</div>
+                        <h4>Assumptions</h4>
                         <ul>
-                            <li>Average flow reduction: 35%</li>
-                            <li>Fan efficiency: 85%</li>
-                            <li>Standard month: 720 hours</li>
+                            <li>Sailing Route: Oslo - Honningsvåg - Oslo with 14 round-trip sailings; schedule via official website.</li>
+                            <li>Data: December's smart cabin flow rates (extrapolated for the full year).</li>
+                            <li>AHU Total Flow Rate: Flow rates determined by cabin number & smart cabin usage.</li>
+                            <li>Fan: Fan energy consumption follows ASHRAE 90.1-2019.</li>
                         </ul>
-                        <p style="font-size: 10px; color: #94a3b8; margin-top: 10px;">*Calculation adheres to Teknotherm efficiency guidelines.</p>
                     </div>
                 </div>
                 <summary>
