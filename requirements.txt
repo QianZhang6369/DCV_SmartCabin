@@ -4,4 +4,4 @@ plotly>=5.18.0
 numpy>=2.1.0
 CoolProp
 scipy
-os
+
