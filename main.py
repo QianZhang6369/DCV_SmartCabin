@@ -202,8 +202,8 @@ if current_page == "seazero":
 
 elif current_page == "measurement":
     try:
-        dataset_CO2 = pd.read_csv('dataset/updated_file_summary_2025_07_2025_12_co2.csv')
-        dataset_flowrate = pd.read_csv('dataset/updated_file_summary_2025_07_2025_12_flowrate.csv')
+        dataset_CO2 = pd.read_csv("dataset/updated_file_summary_2025_07_2025_12_co2.csv")
+        dataset_flowrate = pd.read_csv("dataset/updated_file_summary_2025_07_2025_12_flowrate.csv")
         dataset_CO2['Time'] = pd.to_datetime(dataset_CO2['Time'])
         dataset_flowrate['Time'] = pd.to_datetime(dataset_flowrate['Time'])
         dataset_CO2['Month_Display'] = dataset_CO2['Time'].dt.strftime('%Y.%m')
@@ -634,4 +634,5 @@ elif current_page == "energy":
             </details>
         </div>
         <div style="margin-bottom: 80px;"></div>
+
     """, unsafe_allow_html=True)
