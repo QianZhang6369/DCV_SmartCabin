@@ -215,7 +215,7 @@ elif current_page == "measurement":
             "2025.10": {"orig": "57,862", "dcv": "57,862", "save": "0%"},
             "2025.11": {"orig": "55,956", "dcv": "32,148", "save": "42.5%"},
             "2025.12": {"orig": "57,862", "dcv": "38,635", "save": "33.2%"},
-            "2026.01": {"orig": "57,862", "dcv": "38,635", "save": "33.2%"}
+            "2026.01": {"orig": "57,862", "dcv": "49,383", "save": "14.7%"}
         }
 
         header_col, selector_col = st.columns([8, 2])
@@ -637,3 +637,4 @@ elif current_page == "energy":
         <div style="margin-bottom: 80px;"></div>
 
     """, unsafe_allow_html=True)
+
