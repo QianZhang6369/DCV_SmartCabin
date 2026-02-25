@@ -476,7 +476,7 @@ elif current_page == "energy":
         st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
         
         # Cabin Input (Converted to int for the function)
-        cabin_input = st.text_input("Vessel Cabin number", value="120")
+        cabin_input = st.text_input("Number of Cabins", value="200")
         
         st.markdown('<p style="font-size: 14px; margin-bottom: 8px; font-weight: 500;">Sailing Route</p>', unsafe_allow_html=True)
         route = st.selectbox("", options=["Oslo - Honningsvåg - Oslo", "Bergen - Kirkenes - Bergen"], index=0, label_visibility="collapsed")
@@ -637,4 +637,5 @@ elif current_page == "energy":
         <div style="margin-bottom: 80px;"></div>
 
     """, unsafe_allow_html=True)
+
 
