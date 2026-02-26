@@ -485,126 +485,161 @@ elif current_page == "energy":
 
     with right_col:
         if run_calc:
-            try:
-                # Constants
-                P_asm, T_supply_c, RH_supply = 101325, 15, 0.85
-                duct_diameter_m, design_flow_per_cabin = 0.08, 87
-                SFP, COP, dt = 2.5, 3.0, 10 / 60 
-                num_cabins = int(cabin_input)
+                    try:
+                        # --- 1. CONFIGURATION & CONSTANTS (Integrated from Part 2) ---
+                        P_asm = 101325
+                        T_supply_c = 15
+                        RH_supply = 0.85
+                        duct_diameter_m = 0.08
+                        design_flow_per_cabin = 87
+                        SFP = 2.5
+                        COP_heating = 3.0
+                        COP_cooling = 3.5  # New Cooling COP
+                        dt = 10 / 60 
+                        num_cabins = int(cabin_input)
 
-                # 1. Load Data (Simplified loading logic)
-                # Adjust these paths to your actual environment
-                df_w = pd.read_csv("dataset/hourly_schedule_weather_updated.csv")
-                df_v = pd.read_csv("dataset/VAV_velocity_Oslo-Honningsvåg-Oslo_updated.csv")
+                        # --- 2. DATA LOADING (Updated for Dynamic Route Selection) ---
+                        if route == "Oslo - Honningsvåg - Oslo":
+                            weather_path = "dataset/hourly_schedule_weather_updated.csv"
+                            velocity_path = "dataset/VAV_velocity_Oslo-Honningsvåg-Oslo_updated.csv"
+                        else:  # Bergen - Kirkenes - Bergen
+                            weather_path = "dataset/hourly_schedule_weather_updated_Bergen-Kirkenes-Bergen.csv"
+                            velocity_path = "dataset/VAV_velocity_Bergen-Kirkenes-Bergen_updated.csv"
+
+                        df_w = pd.read_csv(weather_path)
+                        df_v = pd.read_csv(velocity_path)
+                        
+                        # Process Weather Data
+                        df_w['Time'] = pd.to_datetime(df_w['Time'])
+                        cols_w = df_w.select_dtypes(include=['number']).columns
+                        df_w = df_w.groupby('Time')[cols_w].mean().sort_index()
+                        w_grid = pd.date_range(start=df_w.index.min().floor('10min'), end=df_w.index.max().ceil('10min'), freq='10min')
+                        df_w_res = df_w.reindex(df_w.index.union(w_grid)).interpolate(method='linear').reindex(w_grid)
+
+                        # Process Velocity Data
+                        df_v['Time'] = pd.to_datetime(df_v['Time'])
+                        cols_v = df_v.select_dtypes(include=['number']).columns
+                        df_v = df_v.groupby('Time')[cols_v].mean().sort_index()
+                        v_grid = pd.date_range(start=df_v.index.min().floor('10min'), end=df_v.index.max().ceil('10min'), freq='10min')
+                        df_v_res = df_v.reindex(df_v.index.union(v_grid)).interpolate(method='linear').reindex(v_grid)
+
+                        # Merge
+                        master_df = pd.merge(df_w_res, df_v_res, left_index=True, right_index=True, how='outer', suffixes=('_w', '_v'))
+
+                        # --- 3. PHYSICS CALCULATIONS ---
+                        h_supply = HAPropsSI('H', 'T', T_supply_c + 273.15, 'P', P_asm, 'R', RH_supply) / 1000.0
+                        master_df['ambient_enthalpy_kj_kg'] = np.vectorize(get_enthalpy)(master_df['temperature'], master_df['relative_humidity'], P_asm)
+                        master_df['air_density_kg_m3'] = np.vectorize(get_air_density)(master_df['temperature'], master_df['relative_humidity'], P_asm)
+
+                        # --- 4. FLOW & FAN POWER ---
+                        master_df['actual_flow_rate_m3h'] = master_df['Velocity'] * (np.pi * (duct_diameter_m/2)**2) * 3600 * num_cabins
+                        design_total_flow = design_flow_per_cabin * num_cabins
+                        master_df['design_fan_power_kw'] = np.where(master_df['Velocity'] > 0, (design_total_flow / 3600) * SFP, 0)
+                        
+                        # Using the integrated fan_poly from your logic
+                        master_df['actual_fan_power_kw'] = np.vectorize(fan_poly)(
+                            master_df['actual_flow_rate_m3h'], 
+                            design_total_flow, 
+                            (design_total_flow / 3600) * SFP
+                        )
+
+                        # --- 5. THERMAL CALCULATION (Corrected Variable Names) ---
+                        def thermal_calc(flow, h_amb, dens, mode='heat'):
+                            if h_amb == 0 or flow <= 0: return 0.0
+                            delta_h = h_supply - h_amb
+                            if mode == 'heat':
+                                # Heating: Supply enthalpy is higher than ambient
+                                return ((flow / 3600) * dens * max(0, delta_h)) / COP_heating
+                            else:
+                                # Cooling: Ambient enthalpy is higher than supply
+                                return ((flow / 3600) * dens * max(0, -delta_h)) / COP_cooling
+
+                        # Apply calculations using the correct density column: 'air_density_kg_m3'
+                        master_df['actual_heating_kw'] = np.vectorize(thermal_calc)(master_df['actual_flow_rate_m3h'], master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='heat')
+                        master_df['actual_cooling_kw'] = np.vectorize(thermal_calc)(master_df['actual_flow_rate_m3h'], master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='cool')
+                        
+                        master_df['design_heating_kw'] = np.vectorize(thermal_calc)(design_total_flow, master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='heat')
+                        master_df['design_cooling_kw'] = np.vectorize(thermal_calc)(design_total_flow, master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='cool')
+
+                        # --- 6. INTEGRATION (Simpson) ---
+                        df_clean = master_df.fillna(0)
+                        fan_dcv = simpson(y=df_clean['actual_fan_power_kw'].values, dx=dt)*2
+                        fan_orig = simpson(y=df_clean['design_fan_power_kw'].values, dx=dt)*2
+                        
+                        heat_dcv = simpson(y=df_clean['actual_heating_kw'].values, dx=dt)
+                        heat_orig = simpson(y=df_clean['design_heating_kw'].values, dx=dt)
+                        
+                        cool_dcv = simpson(y=df_clean['actual_cooling_kw'].values, dx=dt)
+                        cool_orig = simpson(y=df_clean['design_cooling_kw'].values, dx=dt)
+
+                        # --- 7. UI DISPLAY RESULTS ---
+                        st.markdown('### Detailed Calculation Results')
+
+                        results = [
+                            ("Annual Fan Power (Supply + Exhaust)", fan_orig, fan_dcv, "#004499"),
+                            ("Annual Heating Energy", heat_orig, heat_dcv, "#950606"),
+                            ("Annual Cooling Energy", cool_orig, cool_dcv, "#0891b2") # Cyan/Blue for cooling
+                        ]
+
+                        for title, orig, dcv, color in results:
+                            save = orig - dcv
+                            pct = (save / orig * 100) if orig > 0 else 0
+                            st.markdown(f'<p style="font-weight: 700; color: {color}; font-size: 12px; margin-top: 20px; text-transform: uppercase;">{title}</p>', unsafe_allow_html=True)
+                            c1, c2, c3 = st.columns(3)
+                            with c1: 
+                                st.markdown(f'<div class="result-card"><div class="kpi-label-alt">Baseline</div><div class="kpi-value-alt">{orig:,.0f} <span style="font-size:11px;">kWh</span></div></div>', unsafe_allow_html=True)
+                            with c2: 
+                                st.markdown(f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div><div class="kpi-value-alt">{dcv:,.0f} <span style="font-size:11px;">kWh</span></div></div>', unsafe_allow_html=True)
+                            with c3: 
+                                st.markdown(f'''
+                                    <div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;">
+                                        <div class="kpi-label-alt" style="color: #15803d;">Savings</div>
+                                        <div style="display: flex; align-items: baseline; margin-top: 4px;">
+                                            <span style="color: #15803d; font-size: 20px; font-weight: 700;">{save:,.0f}</span>
+                                            <span style="color: #15803d; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span>
+                                            <span class="saving-badge">-{pct:.1f}%</span>
+                                        </div>
+                                    </div>''', unsafe_allow_html=True)
+
+                        # --- 8. TIME SERIES PLOT (Upper/Bottom Layout) ---
+                        
+                        st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 14px; margin-top: 10px; padding-top: 10px;">OUTDOOR CONDITIONS</p>', unsafe_allow_html=True)
+
+                        # Define subplots: 2 rows, 1 column
+                        fig_w = make_subplots(
+                            rows=2, cols=1, 
+                            shared_xaxes=True, 
+                            vertical_spacing=0.1, 
+                            subplot_titles=("Ambient Temperature (°C)", "Relative Humidity (%)")
+                        )
+
+                        # Upper Plot: Temperature
+                        fig_w.add_trace(
+                            go.Scatter(x=master_df.index, y=master_df['temperature'], name="Temp", line=dict(color='#ff730f', width=1), fill='tozeroy', fillcolor='rgba(255, 115, 15, 0.05)'), 
+                            row=1, col=1
+                        )
+
+                        # Bottom Plot: Humidity
+                        fig_w.add_trace(
+                            go.Scatter(x=master_df.index, y=master_df['relative_humidity'], name="RH", line=dict(color='#004499', width=1), fill='tozeroy', fillcolor='rgba(0, 68, 153, 0.05)'), 
+                            row=2, col=1
+                        )
+
+                        # Layout adjustments
+                        fig_w.update_layout(
+                            height=400, 
+                            margin=dict(l=20, r=20, t=40, b=20), 
+                            template="plotly_white", 
+                            showlegend=False
+                        )
+
+                        # Remove the modebar for a cleaner look
+                        st.plotly_chart(fig_w, use_container_width=True, config={'displayModeBar': False})
+
                 
-                # --- 2. Process Weather Data ---
-                df_w['Time'] = pd.to_datetime(df_w['Time'])
-                # Numeric columns only for resampling
-                cols_w = df_w.select_dtypes(include=['number']).columns
-                df_w = df_w.groupby('Time')[cols_w].mean().sort_index()
 
-                w_grid = pd.date_range(start=df_w.index.min().floor('10min'), end=df_w.index.max().ceil('10min'), freq='10min')
-                df_w_res = df_w.reindex(df_w.index.union(w_grid)).interpolate(method='linear').reindex(w_grid)
-
-                # --- 3. Process Velocity Data ---
-                df_v['Time'] = pd.to_datetime(df_v['Time'])
-                cols_v = df_v.select_dtypes(include=['number']).columns
-                df_v = df_v.groupby('Time')[cols_v].mean().sort_index()
-
-                v_grid = pd.date_range(start=df_v.index.min().floor('10min'), end=df_v.index.max().ceil('10min'), freq='10min')
-                df_v_res = df_v.reindex(df_v.index.union(v_grid)).interpolate(method='linear').reindex(v_grid)
-
-                # --- 4. Merge into One Dataframe ---
-                # Using suffixes ensures that if both files have a column named 'Value', they become 'Value_w' and 'Value_v'
-                master_df = pd.merge(df_w_res, df_v_res, left_index=True, right_index=True, how='outer', suffixes=('_w', '_v'))
-
-                # 2. Physics Calculations
-                h_supply = HAPropsSI('H', 'T', T_supply_c + 273.15, 'P', P_asm, 'R', RH_supply) / 1000.0
-                
-                master_df['ambient_enthalpy_kj_kg'] = np.vectorize(get_enthalpy)(master_df['temperature'], master_df['relative_humidity'], P_asm)
-                master_df['air_density_kg_m3'] = np.vectorize(get_air_density)(master_df['temperature'], master_df['relative_humidity'], P_asm)
-
-                # 3. Flow & Fan Power
-                master_df['actual_flow_rate_m3h'] = master_df['Velocity'] * (np.pi * (duct_diameter_m/2)**2) * 3600 * num_cabins
-                design_total_flow = design_flow_per_cabin * num_cabins
-                design_fan_power_kw_const = (design_total_flow / 3600) * SFP
-                
-                master_df['design_fan_power_kw'] = np.where(master_df['Velocity'] > 0, design_fan_power_kw_const, 0)
-                master_df['actual_fan_power_kw'] = np.vectorize(fan_poly)(master_df['actual_flow_rate_m3h'], design_total_flow, design_fan_power_kw_const)
-
-                # 4. Heating Power
-                def heat_calc(flow, h_amb, dens):
-                    if h_amb >= h_supply or h_amb == 0 or flow <= 0: return 0.0
-                    return ((flow / 3600) * dens * (h_supply - h_amb)) / COP
-
-                master_df['actual_heating_kw'] = np.vectorize(heat_calc)(master_df['actual_flow_rate_m3h'], master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'])
-                master_df['design_heating_kw'] = np.vectorize(heat_calc)(design_total_flow, master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'])
-
-                # 5. Apply Heating Mask (e.g., 08:00 to 14:00)
-                heating_mask = master_df.index.isin(master_df.between_time('08:00', '14:00').index)
-                master_df.loc[~heating_mask, ['actual_heating_kw', 'design_heating_kw']] = 0
-
-                # 6. Integration (Simpson)
-                df_clean = master_df.fillna(0)
-                fan_dcv = simpson(y=df_clean['actual_fan_power_kw'].values, dx=dt)
-                fan_orig = simpson(y=df_clean['design_fan_power_kw'].values, dx=dt)
-                heat_dcv = simpson(y=df_clean['actual_heating_kw'].values, dx=dt)
-                heat_orig = simpson(y=df_clean['design_heating_kw'].values, dx=dt)
-
-
-
-                # ... existing integration code ...
-                heat_orig = simpson(y=df_clean['design_heating_kw'].values, dx=dt)
-
-                # --- NEW: 24-Hour Heating Calculation (No Mask) ---
-                # Calculate heating for the full day by NOT applying the 08:00-14:00 mask
-                master_df['actual_heating_24h_kw'] = np.vectorize(heat_calc)(
-                    master_df['actual_flow_rate_m3h'], 
-                    master_df['ambient_enthalpy_kj_kg'], 
-                    master_df['air_density_kg_m3']
-                )
-                master_df['design_heating_24h_kw'] = np.vectorize(heat_calc)(
-                    design_total_flow, 
-                    master_df['ambient_enthalpy_kj_kg'], 
-                    master_df['air_density_kg_m3']
-                )
-
-                df_clean_24 = master_df.fillna(0)
-                heat_dcv_24h = simpson(y=df_clean_24['actual_heating_24h_kw'].values, dx=dt)
-                heat_orig_24h = simpson(y=df_clean_24['design_heating_24h_kw'].values, dx=dt)
-
-                # 7. UI Display Results
-                st.markdown('### Detailed Calculation Results')
-
-                results = [
-                    ("Annual Fan Power", fan_orig, fan_dcv, "#004499"),
-                    ("Annual Heating By Heat Pump: Option 1 (Only for Harbour Mode)", heat_orig, heat_dcv, "#950606"),
-                    ("Annual Heating By Heat Pump: Option 2 (Full Day)", heat_orig_24h, heat_dcv_24h, "#f59e0b") # Amber color for 24h
-                ]
-
-                for title, orig, dcv, color in results:
-                    save = orig - dcv
-                    pct = (save / orig * 100) if orig > 0 else 0
-                    st.markdown(f'<p style="font-weight: 700; color: {color}; font-size: 12px; margin-top: 20px; text-transform: uppercase;">{title}</p>', unsafe_allow_html=True)
-                    c1, c2, c3 = st.columns(3)
-                    with c1: 
-                        st.markdown(f'<div class="result-card"><div class="kpi-label-alt">Baseline</div><div class="kpi-value-alt">{orig:,.0f} <span style="font-size:11px;">kWh</span></div></div>', unsafe_allow_html=True)
-                    with c2: 
-                        st.markdown(f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div><div class="kpi-value-alt">{dcv:,.0f} <span style="font-size:11px;">kWh</span></div></div>', unsafe_allow_html=True)
-                    with c3: 
-                        st.markdown(f'''
-                            <div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;">
-                                <div class="kpi-label-alt" style="color: #15803d;">Savings</div>
-                                <div style="display: flex; align-items: baseline; margin-top: 4px;">
-                                    <span style="color: #15803d; font-size: 20px; font-weight: 700;">{save:,.0f}</span>
-                                    <span style="color: #15803d; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span>
-                                    <span class="saving-badge">-{pct:.1f}%</span>
-                                </div>
-                            </div>''', unsafe_allow_html=True)
-
-
-            except Exception as e:
-                st.error(f"Calculation Error: {e}")
+                    except Exception as e:
+                        st.error(f"Calculation Error: {e}")
         else:
             st.markdown("""
                 <div style="border: 2px dashed #E2E8F0; border-radius: 12px; height: 450px; display: flex; align-items: center; justify-content: center; color: #94A3B8; text-align: center;">
@@ -624,7 +659,7 @@ elif current_page == "energy":
                             <li>Data: December's smart cabin flow rates (extrapolated for the full year).</li>
                             <li>AHU Total Flow Rate: Flow rates determined by cabin number & smart cabin usage.</li>
                             <li>Fan: Fan energy consumption follows ASHRAE 90.1-2019.</li>
-                            <li>Heating: Heat pump is used to provide heating during harbour mode (from 8:00 to 14:00), COP is 3.</li>
+                            <li>Heating: Heat pump is used to provide heating, COP is 3.</li>
                         </ul>
                     </div>
                 </div>
@@ -637,5 +672,4 @@ elif current_page == "energy":
         <div style="margin-bottom: 80px;"></div>
 
     """, unsafe_allow_html=True)
-
 
