@@ -158,7 +158,6 @@ if current_page == "seazero":
     # Two columns for Smart Cabin content and Timeline
     sc_col1, sc_col2 = st.columns([6.5, 3.5], gap="large")
 
-
     with sc_col1:
         st.markdown("""
             <div class="seazero-content">
@@ -257,22 +256,19 @@ elif current_page == "measurement":
                 xanchor='left'
             )
         fig.update_xaxes(tickfont=dict(size=12), gridcolor='#F5F5F5')
-        # Row 1 Y-axis
         fig.update_yaxes(
             title_text="ppm",
-            title_font=dict(size=12, family="Satoshi, sans-serif"), # Reduced size
-            title_standoff=0,                                      # Moves title closer to ticks
-            tickfont=dict(size=12),                                # Slightly smaller ticks to save space
+            title_font=dict(size=12, family="Satoshi, sans-serif"),
+            title_standoff=0,
+            tickfont=dict(size=12),
             gridcolor='#F5F5F5',
             row=1, col=1
         )
-
-        # Row 2 Y-axis
         fig.update_yaxes(
             title_text="m³/h",
-            title_font=dict(size=12, family="Satoshi, sans-serif"), # Reduced size
-            title_standoff=0,                                      # Moves title closer to ticks
-            tickfont=dict(size=12),                                # Slightly smaller ticks to save space
+            title_font=dict(size=12, family="Satoshi, sans-serif"),
+            title_standoff=0,
+            tickfont=dict(size=12),
             gridcolor='#F5F5F5',
             row=2, col=1
         )
@@ -395,14 +391,14 @@ elif current_page == "energy":
         /* The Smaller Assumption Box */
         .dropup-content {
             position: absolute;
-            bottom: 60px; /* Sits exactly above the footer bar */
-            left: 40px;   /* Aligned with the 'Calculation Assumptions' text */
-            width: 350px; /* Controlled width for a smaller box */
+            bottom: 60px;
+            left: 40px;
+            width: 350px;
             background-color: #ffffff;
             padding: 20px;
             border: 1px solid #e2e8f0;
             border-radius: 12px;
-            box-shadow: 0 -10px 25px rgba(0,0,0,0.1); /* Shadow to make it 'pop' */
+            box-shadow: 0 -10px 25px rgba(0,0,0,0.1);
             max-height: 400px;
             overflow-y: auto;
         }
@@ -419,7 +415,6 @@ elif current_page == "energy":
             color: #94a3b8;
         }
 
-        /* Content inside the small box */
         .inner-markdown h4 { 
             color: #004499; 
             font-size: 14px; 
@@ -443,14 +438,62 @@ elif current_page == "energy":
             color: #004499;
         }
 
+        /* HRW info badge */
+        .hrw-badge {
+            display: inline-flex;
+            align-items: center;
+            background-color: #eff6ff;
+            color: #1d4ed8;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 6px;
+            border: 1px solid #bfdbfe;
+        }
+
         </style>
     """, unsafe_allow_html=True)
 
 
+    # --- 2. HEAT RECOVERY WHEEL HELPER (from Part 2) ---
+    def HAP(output, T_C, input2_name, input2_val, P=101325.0):
+        """Short wrapper for CoolProp HAPropsSI (uses T in Celsius)."""
+        return HAPropsSI(output, "T", T_C + 273.15, input2_name, input2_val, "P", P)
+
+    def heat_recovery_wheel(T_out, RH_out, T_exh, RH_exh, flow_m3h, eff_T, eff_W):
+        """
+        Calculate supply air state after an enthalpy recovery wheel.
+        Returns dict with post-wheel supply conditions (T_hrw, RH_hrw, h_hrw, etc.)
+        """
+        eta_T = eff_T / 100.0
+        eta_W = eff_W / 100.0
+
+        W_out = HAP("W", T_out, "R", RH_out / 100.0)
+        W_exh = HAP("W", T_exh, "R", RH_exh / 100.0)
+        h_out = HAP("H", T_out, "R", RH_out / 100.0) / 1000.0
+
+        T_hrw = T_out + eta_T * (T_exh - T_out)
+        W_hrw = W_out + eta_W * (W_exh - W_out)
+
+        h_hrw  = HAP("H", T_hrw, "W", W_hrw) / 1000.0
+        RH_hrw = HAP("R", T_hrw, "W", W_hrw) * 100.0
+
+        v_da  = HAP("V", T_out, "R", RH_out / 100.0)
+        m_dot = flow_m3h / 3600.0 / v_da
+        Q_kW  = m_dot * (h_hrw - h_out)
+
+        return {
+            "T_hrw":  T_hrw,
+            "RH_hrw": RH_hrw,
+            "W_hrw":  W_hrw,
+            "h_hrw":  h_hrw,
+            "m_dot":  m_dot,
+            "Q_kW":   Q_kW,
+        }
 
 
-
-    # --- 2. LOGIC FUNCTIONS (From Code 2) ---
+    # --- 3. LOGIC FUNCTIONS ---
     def get_enthalpy(T_c, RH_pct, P_asm):
         if np.isnan(T_c) or np.isnan(RH_pct) or T_c == 0: return 0.0
         try: return HAPropsSI('H', 'T', T_c + 273.15, 'P', P_asm, 'R', RH_pct / 100.0) / 1000.0
@@ -468,178 +511,300 @@ elif current_page == "energy":
         x = flow / d_flow
         return (0.0013 + 0.147*x + 0.9506*x**2 - 0.0998*x**3) * design_fan_power_kw_const
 
-    # --- 3. PAGE LAYOUT ---
+
+    # --- 4. PAGE LAYOUT ---
     left_col, right_col = st.columns([1, 2], gap="large")
 
     with left_col:
         st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 16px; margin-bottom: 0;">Configuration</p>', unsafe_allow_html=True)
         st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
-        
-        # Cabin Input (Converted to int for the function)
+
+        # Cabin Input
         cabin_input = st.text_input("Number of Cabins", value="200")
-        
+
         st.markdown('<p style="font-size: 14px; margin-bottom: 8px; font-weight: 500;">Sailing Route</p>', unsafe_allow_html=True)
         route = st.selectbox("", options=["Oslo - Honningsvåg - Oslo", "Bergen - Kirkenes - Bergen"], index=0, label_visibility="collapsed")
-        
+
+        # ── NEW: Heat Recovery Wheel selector ──────────────────────────────
+        st.markdown('<p style="font-size: 14px; margin-bottom: 8px; font-weight: 500;">Heat Recovery Wheel</p>', unsafe_allow_html=True)
+        hrw_option = st.selectbox(
+            "",
+            options=["Without Heat Recovery Wheel", "With Heat Recovery Wheel"],
+            index=0,
+            label_visibility="collapsed",
+        )
+        hrw_enabled = (hrw_option == "With Heat Recovery Wheel")
+
+        # HRW parameters (fixed, matching Part 2 defaults)
+        HRW_EFF_T  = 70.0   # Sensible efficiency [%]
+        HRW_EFF_W  = 65.0   # Latent  efficiency  [%]
+        T_EXH_C    = 22.0   # Exhaust air temperature [°C]
+        RH_EXH_PCT = 40.0   # Exhaust air RH          [%]
+        # ───────────────────────────────────────────────────────────────────
+
         run_calc = st.button("Run Calculation")
 
     with right_col:
         if run_calc:
+            try:
+                # --- CONFIGURATION & CONSTANTS ---
+                P_asm              = 101325
+                T_supply_c         = 18           # updated to match Part 2
+                RH_supply          = 0.85
+                duct_diameter_m    = 0.08
+                design_flow_per_cabin = 87
+                SFP                = 2.5
+                COP_heating        = 3.0
+                COP_cooling        = 3.5
+                dt                 = 10 / 60
+                num_cabins         = int(cabin_input)
+
+                # --- DATA LOADING ---
+                if route == "Oslo - Honningsvåg - Oslo":
+                    weather_path  = "dataset/hourly_schedule_weather_updated.csv"
+                    velocity_path = "dataset/VAV_velocity_Oslo-Honningsvåg-Oslo_updated.csv"
+                else:
+                    weather_path  = "dataset/hourly_schedule_weather_updated_Bergen-Kirkenes-Bergen.csv"
+                    velocity_path = "dataset/VAV_velocity_Bergen-Kirkenes-Bergen_updated.csv"
+
+                df_w = pd.read_csv(weather_path)
+                df_v = pd.read_csv(velocity_path)
+
+                # Process Weather Data
+                df_w['Time'] = pd.to_datetime(df_w['Time'])
+                cols_w = df_w.select_dtypes(include=['number']).columns
+                df_w = df_w.groupby('Time')[cols_w].mean().sort_index()
+                w_grid = pd.date_range(start=df_w.index.min().floor('10min'), end=df_w.index.max().ceil('10min'), freq='10min')
+                df_w_res = df_w.reindex(df_w.index.union(w_grid)).interpolate(method='linear').reindex(w_grid)
+
+                # Process Velocity Data
+                df_v['Time'] = pd.to_datetime(df_v['Time'])
+                cols_v = df_v.select_dtypes(include=['number']).columns
+                df_v = df_v.groupby('Time')[cols_v].mean().sort_index()
+                v_grid = pd.date_range(start=df_v.index.min().floor('10min'), end=df_v.index.max().ceil('10min'), freq='10min')
+                df_v_res = df_v.reindex(df_v.index.union(v_grid)).interpolate(method='linear').reindex(v_grid)
+
+                # Merge
+                master_df = pd.merge(df_w_res, df_v_res, left_index=True, right_index=True, how='outer', suffixes=('_w', '_v'))
+
+                # --- PHYSICS ---
+                h_supply = HAPropsSI('H', 'T', T_supply_c + 273.15, 'P', P_asm, 'R', RH_supply) / 1000.0
+
+                master_df['ambient_enthalpy_kj_kg'] = np.vectorize(get_enthalpy)(
+                    master_df['temperature'], master_df['relative_humidity'], P_asm)
+                master_df['air_density_kg_m3'] = np.vectorize(get_air_density)(
+                    master_df['temperature'], master_df['relative_humidity'], P_asm)
+
+                # --- FLOW ---
+                design_total_flow = design_flow_per_cabin * num_cabins
+                master_df['actual_flow_rate_m3h'] = (
+                    master_df['Velocity'] * (np.pi * (duct_diameter_m / 2) ** 2) * 3600 * num_cabins)
+                master_df['vessel_design_flow_m3h'] = np.where(
+                    master_df['Velocity'] > 0, design_total_flow, 0)
+
+                # --- HEAT RECOVERY WHEEL (per time-step) ---
+                def apply_hrw_row(T_amb, RH_amb, flow):
+                    """Return (T_post, RH_post, h_post) after HRW; falls back to ambient if disabled."""
+                    if not hrw_enabled or flow <= 0 or np.isnan(T_amb) or np.isnan(RH_amb):
+                        h = get_enthalpy(T_amb, RH_amb, P_asm)
+                        return T_amb, RH_amb, h
                     try:
-                        # --- 1. CONFIGURATION & CONSTANTS (Integrated from Part 2) ---
-                        P_asm = 101325
-                        T_supply_c = 15
-                        RH_supply = 0.85
-                        duct_diameter_m = 0.08
-                        design_flow_per_cabin = 87
-                        SFP = 2.5
-                        COP_heating = 3.0
-                        COP_cooling = 3.5  # New Cooling COP
-                        dt = 10 / 60 
-                        num_cabins = int(cabin_input)
+                        res = heat_recovery_wheel(
+                            T_out=T_amb, RH_out=RH_amb,
+                            T_exh=T_EXH_C, RH_exh=RH_EXH_PCT,
+                            flow_m3h=flow,
+                            eff_T=HRW_EFF_T, eff_W=HRW_EFF_W,
+                        )
+                        return res["T_hrw"], res["RH_hrw"], res["h_hrw"]
+                    except:
+                        h = get_enthalpy(T_amb, RH_amb, P_asm)
+                        return T_amb, RH_amb, h
 
-                        # --- 2. DATA LOADING (Updated for Dynamic Route Selection) ---
-                        if route == "Oslo - Honningsvåg - Oslo":
-                            weather_path = "dataset/hourly_schedule_weather_updated.csv"
-                            velocity_path = "dataset/VAV_velocity_Oslo-Honningsvåg-Oslo_updated.csv"
-                        else:  # Bergen - Kirkenes - Bergen
-                            weather_path = "dataset/hourly_schedule_weather_updated_Bergen-Kirkenes-Bergen.csv"
-                            velocity_path = "dataset/VAV_velocity_Bergen-Kirkenes-Bergen_updated.csv"
+                # Apply HRW to actual flows
+                hrw_actual = [
+                    apply_hrw_row(row['temperature'], row['relative_humidity'], row['actual_flow_rate_m3h'])
+                    for _, row in master_df.iterrows()
+                ]
+                master_df['h_post_hrw'] = [r[2] for r in hrw_actual]
 
-                        df_w = pd.read_csv(weather_path)
-                        df_v = pd.read_csv(velocity_path)
-                        
-                        # Process Weather Data
-                        df_w['Time'] = pd.to_datetime(df_w['Time'])
-                        cols_w = df_w.select_dtypes(include=['number']).columns
-                        df_w = df_w.groupby('Time')[cols_w].mean().sort_index()
-                        w_grid = pd.date_range(start=df_w.index.min().floor('10min'), end=df_w.index.max().ceil('10min'), freq='10min')
-                        df_w_res = df_w.reindex(df_w.index.union(w_grid)).interpolate(method='linear').reindex(w_grid)
+                # Apply HRW to design flows
+                hrw_design = [
+                    apply_hrw_row(row['temperature'], row['relative_humidity'], row['vessel_design_flow_m3h'])
+                    for _, row in master_df.iterrows()
+                ]
+                master_df['h_post_hrw_design'] = [r[2] for r in hrw_design]
 
-                        # Process Velocity Data
-                        df_v['Time'] = pd.to_datetime(df_v['Time'])
-                        cols_v = df_v.select_dtypes(include=['number']).columns
-                        df_v = df_v.groupby('Time')[cols_v].mean().sort_index()
-                        v_grid = pd.date_range(start=df_v.index.min().floor('10min'), end=df_v.index.max().ceil('10min'), freq='10min')
-                        df_v_res = df_v.reindex(df_v.index.union(v_grid)).interpolate(method='linear').reindex(v_grid)
+                # --- FAN POWER ---
+                design_fan_power_kw = (design_total_flow / 3600) * SFP
+                master_df['design_fan_power_kw'] = np.where(master_df['Velocity'] > 0, design_fan_power_kw, 0)
+                master_df['actual_fan_power_kw'] = np.vectorize(fan_poly)(
+                    master_df['actual_flow_rate_m3h'],
+                    master_df['vessel_design_flow_m3h'],
+                    design_fan_power_kw,
+                )
 
-                        # Merge
-                        master_df = pd.merge(df_w_res, df_v_res, left_index=True, right_index=True, how='outer', suffixes=('_w', '_v'))
+                # --- THERMAL (uses post-HRW enthalpy as AHU inlet) ---
+                def thermal_calc(flow, h_inlet, dens, mode='heat'):
+                    if h_inlet == 0.0 or flow <= 0: return 0.0
+                    delta_h = h_supply - h_inlet
+                    if mode == 'heat':
+                        return ((flow / 3600) * dens * max(0.0,  delta_h)) / COP_heating
+                    else:
+                        return ((flow / 3600) * dens * max(0.0, -delta_h)) / COP_cooling
 
-                        # --- 3. PHYSICS CALCULATIONS ---
-                        h_supply = HAPropsSI('H', 'T', T_supply_c + 273.15, 'P', P_asm, 'R', RH_supply) / 1000.0
-                        master_df['ambient_enthalpy_kj_kg'] = np.vectorize(get_enthalpy)(master_df['temperature'], master_df['relative_humidity'], P_asm)
-                        master_df['air_density_kg_m3'] = np.vectorize(get_air_density)(master_df['temperature'], master_df['relative_humidity'], P_asm)
+                master_df['actual_heating_kw'] = np.vectorize(thermal_calc)(
+                    master_df['actual_flow_rate_m3h'], master_df['h_post_hrw'],
+                    master_df['air_density_kg_m3'], mode='heat')
+                master_df['actual_cooling_kw'] = np.vectorize(thermal_calc)(
+                    master_df['actual_flow_rate_m3h'], master_df['h_post_hrw'],
+                    master_df['air_density_kg_m3'], mode='cool')
 
-                        # --- 4. FLOW & FAN POWER ---
-                        master_df['actual_flow_rate_m3h'] = master_df['Velocity'] * (np.pi * (duct_diameter_m/2)**2) * 3600 * num_cabins
-                        design_total_flow = design_flow_per_cabin * num_cabins
-                        master_df['design_fan_power_kw'] = np.where(master_df['Velocity'] > 0, (design_total_flow / 3600) * SFP, 0)
-                        
-                        # Using the integrated fan_poly from your logic
-                        master_df['actual_fan_power_kw'] = np.vectorize(fan_poly)(
-                            master_df['actual_flow_rate_m3h'], 
-                            design_total_flow, 
-                            (design_total_flow / 3600) * SFP
+                master_df['design_heating_kw'] = np.vectorize(thermal_calc)(
+                    master_df['vessel_design_flow_m3h'], master_df['h_post_hrw_design'],
+                    master_df['air_density_kg_m3'], mode='heat')
+                master_df['design_cooling_kw'] = np.vectorize(thermal_calc)(
+                    master_df['vessel_design_flow_m3h'], master_df['h_post_hrw_design'],
+                    master_df['air_density_kg_m3'], mode='cool')
+
+                # --- INTEGRATION (Simpson) ---
+                df_clean = master_df.fillna(0)
+                fan_dcv  = simpson(y=df_clean['actual_fan_power_kw'].values, dx=dt) * 2
+                fan_orig = simpson(y=df_clean['design_fan_power_kw'].values, dx=dt) * 2
+
+                heat_dcv  = simpson(y=df_clean['actual_heating_kw'].values, dx=dt)
+                heat_orig = simpson(y=df_clean['design_heating_kw'].values, dx=dt)
+
+                cool_dcv  = simpson(y=df_clean['actual_cooling_kw'].values, dx=dt)
+                cool_orig = simpson(y=df_clean['design_cooling_kw'].values, dx=dt)
+
+                # --- FCU FAN ENERGY ---
+                # Baseline: no FCU (traditional system uses AHU only)
+                # DCV mode: each cabin has a fan coil unit running 12 months
+                FCU_KWH_PER_CABIN_PER_MONTH = 7
+                fcu_orig = 0
+                fcu_dcv  = FCU_KWH_PER_CABIN_PER_MONTH * 12 * num_cabins
+
+                # --- RESULTS HEADER ---
+                hrw_label = (
+                    f"With Heat Recovery Wheel  (η_T={HRW_EFF_T}%, η_W={HRW_EFF_W}%)"
+                    if hrw_enabled else "Without Heat Recovery Wheel"
+                )
+                st.markdown(
+                    f'### Detailed Calculation Results'
+                    f'<br><span class="hrw-badge">🔄 {hrw_label}</span>',
+                    unsafe_allow_html=True,
+                )
+
+                def render_savings_row(title, orig, dcv, color):
+                    save = orig - dcv
+                    pct  = (save / orig * 100) if orig > 0 else 0
+                    st.markdown(
+                        f'<p style="font-weight: 700; color: {color}; font-size: 12px; '
+                        f'margin-top: 20px; text-transform: uppercase;">{title}</p>',
+                        unsafe_allow_html=True,
+                    )
+                    r1, r2, r3 = st.columns(3)
+                    with r1:
+                        st.markdown(
+                            f'<div class="result-card"><div class="kpi-label-alt">Baseline</div>'
+                            f'<div class="kpi-value-alt">{orig:,.0f} <span style="font-size:11px;">kWh</span></div></div>',
+                            unsafe_allow_html=True,
+                        )
+                    with r2:
+                        st.markdown(
+                            f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div>'
+                            f'<div class="kpi-value-alt">{dcv:,.0f} <span style="font-size:11px;">kWh</span></div></div>',
+                            unsafe_allow_html=True,
+                        )
+                    with r3:
+                        st.markdown(
+                            f'''<div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;">
+                                    <div class="kpi-label-alt" style="color: #15803d;">Savings</div>
+                                    <div style="display: flex; align-items: baseline; margin-top: 4px;">
+                                        <span style="color: #15803d; font-size: 20px; font-weight: 700;">{save:,.0f}</span>
+                                        <span style="color: #15803d; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span>
+                                        <span class="saving-badge">-{pct:.1f}%</span>
+                                    </div>
+                                </div>''',
+                            unsafe_allow_html=True,
                         )
 
-                        # --- 5. THERMAL CALCULATION (Corrected Variable Names) ---
-                        def thermal_calc(flow, h_amb, dens, mode='heat'):
-                            if h_amb == 0 or flow <= 0: return 0.0
-                            delta_h = h_supply - h_amb
-                            if mode == 'heat':
-                                # Heating: Supply enthalpy is higher than ambient
-                                return ((flow / 3600) * dens * max(0, delta_h)) / COP_heating
-                            else:
-                                # Cooling: Ambient enthalpy is higher than supply
-                                return ((flow / 3600) * dens * max(0, -delta_h)) / COP_cooling
+                # 1. Supply + Exhaust fans
+                render_savings_row("Annual Fan Power (Supply + Exhaust)", fan_orig, fan_dcv, "#004499")
 
-                        # Apply calculations using the correct density column: 'air_density_kg_m3'
-                        master_df['actual_heating_kw'] = np.vectorize(thermal_calc)(master_df['actual_flow_rate_m3h'], master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='heat')
-                        master_df['actual_cooling_kw'] = np.vectorize(thermal_calc)(master_df['actual_flow_rate_m3h'], master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='cool')
-                        
-                        master_df['design_heating_kw'] = np.vectorize(thermal_calc)(design_total_flow, master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='heat')
-                        master_df['design_cooling_kw'] = np.vectorize(thermal_calc)(design_total_flow, master_df['ambient_enthalpy_kj_kg'], master_df['air_density_kg_m3'], mode='cool')
+                # 2. Fan Coil Unit (baseline = 0, DCV adds cost)
+                fcu_extra = fcu_dcv - fcu_orig
+                st.markdown(
+                    '<p style="font-weight: 700; color: #004499; font-size: 12px; '
+                    'margin-top: 20px; text-transform: uppercase;">Annual Fan Power (Fan Coil Unit)</p>',
+                    unsafe_allow_html=True,
+                )
+                fc1, fc2, fc3 = st.columns(3)
+                with fc1:
+                    st.markdown(
+                        '<div class="result-card"><div class="kpi-label-alt">Baseline</div>'
+                        '<div class="kpi-value-alt">0 <span style="font-size:11px;">kWh</span></div></div>',
+                        unsafe_allow_html=True,
+                    )
+                with fc2:
+                    st.markdown(
+                        f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div>'
+                        f'<div class="kpi-value-alt">{fcu_dcv:,.0f} <span style="font-size:11px;">kWh</span></div></div>',
+                        unsafe_allow_html=True,
+                    )
+                with fc3:
+                    st.markdown(
+                        f'''<div class="result-card" style="border-color: #fecaca; background-color: #fff1f2;">
+                                <div class="kpi-label-alt" style="color: #b91c1c;">Additional Cost</div>
+                                <div style="display: flex; align-items: baseline; margin-top: 4px;">
+                                    <span style="color: #b91c1c; font-size: 20px; font-weight: 700;">+{fcu_extra:,.0f}</span>
+                                    <span style="color: #b91c1c; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span>
+                                    <span style="display:inline-flex; align-items:center; background-color:#fee2e2; color:#b91c1c;
+                                                 padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; margin-left:8px;">
+                                        +{(fcu_extra / fcu_dcv * 100) if fcu_dcv > 0 else 0:.1f}%
+                                    </span>
+                                </div>
+                            </div>''',
+                        unsafe_allow_html=True,
+                    )
 
-                        # --- 6. INTEGRATION (Simpson) ---
-                        df_clean = master_df.fillna(0)
-                        fan_dcv = simpson(y=df_clean['actual_fan_power_kw'].values, dx=dt)*2
-                        fan_orig = simpson(y=df_clean['design_fan_power_kw'].values, dx=dt)*2
-                        
-                        heat_dcv = simpson(y=df_clean['actual_heating_kw'].values, dx=dt)
-                        heat_orig = simpson(y=df_clean['design_heating_kw'].values, dx=dt)
-                        
-                        cool_dcv = simpson(y=df_clean['actual_cooling_kw'].values, dx=dt)
-                        cool_orig = simpson(y=df_clean['design_cooling_kw'].values, dx=dt)
+                # 3. Heating and Cooling
+                render_savings_row("Annual Heating Energy", heat_orig, heat_dcv, "#950606")
+                render_savings_row("Annual Cooling Energy", cool_orig, cool_dcv, "#0891b2")
 
-                        # --- 7. UI DISPLAY RESULTS ---
-                        st.markdown('### Detailed Calculation Results')
+                # --- TIME SERIES PLOT ---
+                st.markdown(
+                    '<p style="font-weight: 700; color: #1E293B; font-size: 14px; '
+                    'margin-top: 10px; padding-top: 10px;">OUTDOOR CONDITIONS</p>',
+                    unsafe_allow_html=True,
+                )
 
-                        results = [
-                            ("Annual Fan Power (Supply + Exhaust)", fan_orig, fan_dcv, "#004499"),
-                            ("Annual Heating Energy", heat_orig, heat_dcv, "#950606"),
-                            ("Annual Cooling Energy", cool_orig, cool_dcv, "#0891b2") # Cyan/Blue for cooling
-                        ]
+                fig_w = make_subplots(
+                    rows=2, cols=1,
+                    shared_xaxes=True,
+                    vertical_spacing=0.1,
+                    subplot_titles=("Ambient Temperature (°C)", "Relative Humidity (%)"),
+                )
+                fig_w.add_trace(
+                    go.Scatter(x=master_df.index, y=master_df['temperature'], name="Temp",
+                               line=dict(color='#ff730f', width=1), fill='tozeroy',
+                               fillcolor='rgba(255, 115, 15, 0.05)'),
+                    row=1, col=1,
+                )
+                fig_w.add_trace(
+                    go.Scatter(x=master_df.index, y=master_df['relative_humidity'], name="RH",
+                               line=dict(color='#004499', width=1), fill='tozeroy',
+                               fillcolor='rgba(0, 68, 153, 0.05)'),
+                    row=2, col=1,
+                )
+                fig_w.update_layout(
+                    height=400, margin=dict(l=20, r=20, t=40, b=20),
+                    template="plotly_white", showlegend=False,
+                )
+                st.plotly_chart(fig_w, use_container_width=True, config={'displayModeBar': False})
 
-                        for title, orig, dcv, color in results:
-                            save = orig - dcv
-                            pct = (save / orig * 100) if orig > 0 else 0
-                            st.markdown(f'<p style="font-weight: 700; color: {color}; font-size: 12px; margin-top: 20px; text-transform: uppercase;">{title}</p>', unsafe_allow_html=True)
-                            c1, c2, c3 = st.columns(3)
-                            with c1: 
-                                st.markdown(f'<div class="result-card"><div class="kpi-label-alt">Baseline</div><div class="kpi-value-alt">{orig:,.0f} <span style="font-size:11px;">kWh</span></div></div>', unsafe_allow_html=True)
-                            with c2: 
-                                st.markdown(f'<div class="result-card"><div class="kpi-label-alt">DCV Mode</div><div class="kpi-value-alt">{dcv:,.0f} <span style="font-size:11px;">kWh</span></div></div>', unsafe_allow_html=True)
-                            with c3: 
-                                st.markdown(f'''
-                                    <div class="result-card" style="border-color: #86efac; background-color: #f0fdf4;">
-                                        <div class="kpi-label-alt" style="color: #15803d;">Savings</div>
-                                        <div style="display: flex; align-items: baseline; margin-top: 4px;">
-                                            <span style="color: #15803d; font-size: 20px; font-weight: 700;">{save:,.0f}</span>
-                                            <span style="color: #15803d; font-size: 11px; font-weight: 600; margin-left: 4px;">kWh</span>
-                                            <span class="saving-badge">-{pct:.1f}%</span>
-                                        </div>
-                                    </div>''', unsafe_allow_html=True)
-
-                        # --- 8. TIME SERIES PLOT (Upper/Bottom Layout) ---
-                        
-                        st.markdown('<p style="font-weight: 700; color: #1E293B; font-size: 14px; margin-top: 10px; padding-top: 10px;">OUTDOOR CONDITIONS</p>', unsafe_allow_html=True)
-
-                        # Define subplots: 2 rows, 1 column
-                        fig_w = make_subplots(
-                            rows=2, cols=1, 
-                            shared_xaxes=True, 
-                            vertical_spacing=0.1, 
-                            subplot_titles=("Ambient Temperature (°C)", "Relative Humidity (%)")
-                        )
-
-                        # Upper Plot: Temperature
-                        fig_w.add_trace(
-                            go.Scatter(x=master_df.index, y=master_df['temperature'], name="Temp", line=dict(color='#ff730f', width=1), fill='tozeroy', fillcolor='rgba(255, 115, 15, 0.05)'), 
-                            row=1, col=1
-                        )
-
-                        # Bottom Plot: Humidity
-                        fig_w.add_trace(
-                            go.Scatter(x=master_df.index, y=master_df['relative_humidity'], name="RH", line=dict(color='#004499', width=1), fill='tozeroy', fillcolor='rgba(0, 68, 153, 0.05)'), 
-                            row=2, col=1
-                        )
-
-                        # Layout adjustments
-                        fig_w.update_layout(
-                            height=400, 
-                            margin=dict(l=20, r=20, t=40, b=20), 
-                            template="plotly_white", 
-                            showlegend=False
-                        )
-
-                        # Remove the modebar for a cleaner look
-                        st.plotly_chart(fig_w, use_container_width=True, config={'displayModeBar': False})
-
-                
-
-                    except Exception as e:
-                        st.error(f"Calculation Error: {e}")
+            except Exception as e:
+                st.error(f"Calculation Error: {e}")
         else:
             st.markdown("""
                 <div style="border: 2px dashed #E2E8F0; border-radius: 12px; height: 450px; display: flex; align-items: center; justify-content: center; color: #94A3B8; text-align: center;">
@@ -647,7 +812,7 @@ elif current_page == "energy":
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- 3. STABLE FOOTER WITH SMALL FLOATING BOX ---
+    # --- STABLE FOOTER WITH SMALL FLOATING BOX ---
     st.markdown("""
         <div class="footer-fixed-wrapper">
             <details>
@@ -660,6 +825,8 @@ elif current_page == "energy":
                             <li>AHU Total Flow Rate: Flow rates determined by cabin number & smart cabin usage.</li>
                             <li>Fan: Fan energy consumption follows ASHRAE 90.1-2019.</li>
                             <li>Heating: Heat pump is used to provide heating, COP is 3.</li>
+                            <li>Heat Recovery Wheel: Sensible efficiency 70%, Latent efficiency 65%, Exhaust air at 22°C / 40% RH.</li>
+                            <li>Fan Coil Unit (DCV mode): 7 kWh/cabin/month × 12 months × number of cabins. Baseline has no FCU.</li>
                         </ul>
                     </div>
                 </div>
@@ -670,6 +837,4 @@ elif current_page == "energy":
             </details>
         </div>
         <div style="margin-bottom: 80px;"></div>
-
     """, unsafe_allow_html=True)
-
